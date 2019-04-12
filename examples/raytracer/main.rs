@@ -31,7 +31,7 @@ use hal::pass::Subpass;
 use hal::pso::{PipelineStage, ShaderStageFlags};
 use hal::queue::Submission;
 use hal::{buffer, command, format as f, image as i, memory as m, pass, pool, pso, window::Extent2D, PresentMode};
-use hal::{Backbuffer, QueueFamily, DescriptorPool, FrameSync, Primitive, SwapchainConfig,};
+use hal::{Backend, Backbuffer, QueueFamily, DescriptorPool, FrameSync, Primitive, SwapchainConfig,};
 use hal::{Compute, Device, Instance, PhysicalDevice, Surface, Swapchain};
 
 use std::fs;
@@ -58,6 +58,9 @@ const COLOR_RANGE: i::SubresourceRange = i::SubresourceRange {
 ))]
 fn main() {
     env_logger::init();
+
+    let numbers: Vec<f32> = vec![1.0, 2.0, 3.0];
+    let stride = std::mem::size_of::<f32>() as u64;
 
     let mut events_loop = winit::EventsLoop::new();
 
@@ -115,7 +118,14 @@ fn main() {
                         count: 1,
                         stage_flags: pso::ShaderStageFlags::COMPUTE,
                         immutable_samplers: false,
-                    }
+                    },
+                    pso::DescriptorSetLayoutBinding {
+                        binding: 1,
+                        ty: pso::DescriptorType::StorageBuffer,
+                        count: 1,
+                        stage_flags: pso::ShaderStageFlags::COMPUTE,
+                        immutable_samplers: false,
+                    },
                 ],
                 &[],
             )
@@ -135,19 +145,24 @@ fn main() {
 
         let desc_pool = unsafe {
             device.create_descriptor_pool(
-                2,
+                4,
                 &[
                     pso::DescriptorRangeDesc {
                         ty: pso::DescriptorType::StorageImage,
-                        count: 1,
+                        count: 4,
+                    },
+                    pso::DescriptorRangeDesc{
+                        ty: pso::DescriptorType::StorageBuffer,
+                        count: 4,
+
                     },
                 ],
             )
         }.expect("Can't create descriptor pool");
+
+        println!("{:?}", desc_pool);
         (pipeline_layout, pipeline, set_layout, desc_pool)
     };
-
-
 
     let mut frame_semaphore = device.create_semaphore().expect("Can't create semaphore");
     let mut frame_fence = device.create_fence(false).expect("Can't create fence"); // TODO: remove
@@ -155,6 +170,8 @@ fn main() {
     let (caps, formats, _present_modes, _composite_alphas) =
         surface.compatibility(&mut adapter.physical_device);
     println!("formats: {:?}", formats);
+    println!("formats: {:?}", caps);
+
     let format = formats.map_or(f::Format::Rgba8Srgb, |formats| {
         formats
             .iter()
@@ -165,9 +182,10 @@ fn main() {
 
     let mut swap_config = SwapchainConfig::from_caps(&caps, format, DIMS);
 
-//    swap_config.image_count = 2;
-//    swap_config.image_layers = 3;
+    //swap_config.image_count = 3;
+    //swap_config.image_layers = 3;
     swap_config.present_mode = hal::PresentMode::Immediate;
+    swap_config.image_usage = i::Usage::STORAGE | i::Usage::COLOR_ATTACHMENT ;
     println!("{:?}", swap_config);
     let extent = swap_config.extent.to_extent();
 
@@ -175,52 +193,88 @@ fn main() {
         device.create_swapchain(&mut surface, swap_config, None)
     }.expect("Can't create swapchain");
 
+
+
+    let (device_memory, device_buffer, device_buffer_size) = unsafe {
+        create_buffer::<back::Backend>(
+            &device,
+            &memory_properties.memory_types,
+            m::Properties::DEVICE_LOCAL | m::Properties::CPU_VISIBLE | m::Properties::COHERENT,
+            buffer::Usage::TRANSFER_SRC | buffer::Usage::TRANSFER_DST | buffer::Usage::STORAGE,
+            stride,
+            numbers.len() as u64,
+        )
+    };
+
     unsafe {
+        let mut writer = device.acquire_mapping_writer::<f32>(&device_memory, 0..device_buffer_size).unwrap();
+        writer[0..numbers.len()].copy_from_slice(&numbers);
+        device.release_mapping_writer(writer).expect("Can't relase mapping writer");
+    }
 
 
-        // Create The ImageViews
-        let mut frame_images = match backbuffer {
-            Backbuffer::Images(images) => {
-                images
-                    .into_iter()
-                    .map(|image| unsafe {
+    // Create The ImageViews
+    let mut frame_images = match backbuffer {
+        Backbuffer::Images(images) => {
+            images
+                .into_iter()
+                .map(|image| unsafe {
 
-                        //println!("img: {:?}", image);
+                    //println!("img: {:?}", image);
+                    let rtv = device
+                        .create_image_view(
+                            &image,
+                            i::ViewKind::D2,
+                            format,
+                            Swizzle::NO,
+                            COLOR_RANGE.clone(),
+                        ).unwrap();
 
-                        let rtv = device
-                            .create_image_view(
-                                &image,
-                                i::ViewKind::D2,
-                                format,
-                                Swizzle::NO,
-                                COLOR_RANGE.clone(),
-                            ).unwrap();
+                    println!("img_view: {:?}", rtv);
 
-                        println!("img_view: {:?}", rtv);
 
-                        let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
+                    let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
 
-                        device.write_descriptor_sets(Some(pso::DescriptorSetWrite {
+                    device.write_descriptor_sets(Some(
+                        pso::DescriptorSetWrite {
                             set: &desc_set,
                             binding: 0,
                             array_offset: 0,
                             descriptors: Some(pso::Descriptor::Image(&rtv, i::Layout::Present)),
-                        }));
+                        }
+                    ));
 
 
-                        (image, rtv)
-                    }).collect::<Vec<_>>()
-            }
-            Backbuffer::Framebuffer(_) => unimplemented!("couldnt create image views"),
-        };
-    }
+                    device.write_descriptor_sets(Some(
+                        pso::DescriptorSetWrite {
+                            set: &desc_set,
+                            binding: 1,
+                            array_offset: 0,
+                            descriptors: Some(pso::Descriptor::Buffer(&device_buffer, None .. None)),
+                        }
+                    ));
+
+                    (image, rtv, desc_set)
+                }).collect::<Vec<_>>()
+        }
+        Backbuffer::Framebuffer(_) => unimplemented!("couldnt create image views"),
+    };
 
 
-    //println!("desc_set: {:?}", desc_set);
-
-
-
-
+//
+//
+//    unsafe {
+//        let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
+//
+//        device.write_descriptor_sets(Some(
+//            pso::DescriptorSetWrite {
+//                set: &desc_set,
+//                binding: 1,
+//                array_offset: 0,
+//                descriptors: Some(pso::Descriptor::Buffer(&device_buffer, None .. None)),
+//            }
+//        ));
+//    }
 
 
     let mut running = true;
@@ -261,7 +315,7 @@ fn main() {
             cmd_buffer.begin();
 
             cmd_buffer.bind_compute_pipeline(&pipeline);
-            //cmd_buffer.bind_compute_descriptor_sets(&pipeline_layout, 0, Some(&frame_images[frame as usize]), &[]);
+            cmd_buffer.bind_compute_descriptor_sets(&pipeline_layout, 0, Some(&frame_images[frame as usize].2), &[]);
             cmd_buffer.dispatch([800, 600, 1]);
             cmd_buffer.finish();
 
@@ -300,6 +354,35 @@ fn main() {
 
         device.destroy_swapchain(swap_chain);
     }
+}
+
+
+
+unsafe fn create_buffer<B: Backend>(
+    device: &B::Device,
+    memory_types: &[hal::MemoryType],
+    properties: m::Properties,
+    usage: buffer::Usage,
+    stride: u64,
+    len: u64,
+) -> (B::Memory, B::Buffer, u64) {
+    let mut buffer = device.create_buffer(stride * len, usage).unwrap();
+    let requirements = device.get_buffer_requirements(&buffer);
+
+    let ty = memory_types
+        .into_iter()
+        .enumerate()
+        .position(|(id, memory_type)| {
+            requirements.type_mask & (1 << id) != 0 &&
+                memory_type.properties.contains(properties)
+        })
+        .unwrap()
+        .into();
+
+    let memory = device.allocate_memory(ty, requirements.size).unwrap();
+    device.bind_buffer_memory(&memory, 0, &mut buffer).unwrap();
+
+    (memory, buffer, requirements.size)
 }
 
 #[cfg(not(any(
