@@ -26,6 +26,10 @@ path = "quad/main.rs"
 name = "compute"
 path = "compute/main.rs"
 
+[[bin]]
+name = "raytracer"
+path = "raytracer/main.rs"
+
 [dependencies]
 env_logger = "0.5"
 image = "0.19"
