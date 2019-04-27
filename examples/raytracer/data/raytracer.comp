@@ -36,6 +36,7 @@ float ray_sphere_intersection(Ray ray, Sphere sphere){
 }
 
 
+
 void main() {
 
     vec3 cam_origin = vec3(0.0, 0.0, 0.0);
