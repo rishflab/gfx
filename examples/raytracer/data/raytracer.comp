@@ -3,29 +3,66 @@ layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 layout(binding = 0, rgba8) uniform writeonly image2D img;
 
-
 layout(binding = 1) buffer PrimeIndices {
     float[] size;
 }; // this is used as both input and output for convenience
 
+struct Sphere {
+    vec3 centre;
+    float radius;
+};
+
+struct Light {
+    vec3 position;
+    float intensity;
+};
+
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+};
+
+float ray_sphere_intersection(Ray ray, Sphere sphere){
+
+    float a = dot(ray.direction, ray.direction);
+    vec3 s0_r0 = ray.origin - sphere.centre;
+    float b = 2.0 * dot(ray.direction, s0_r0);
+    float c = dot(s0_r0, s0_r0) - (sphere.radius * sphere.radius);
+
+    if (b*b - 4.0*a*c < 0.0) {
+        return -1.0;
+    }
+    return (-b - sqrt((b*b) - 4.0*a*c))/(2.0*a);
+}
+
 
 void main() {
-    vec2 norm_coordinates = (gl_GlobalInvocationID.xy + vec2(0.5)) / vec2(imageSize(img));
-    float p = size[2
 
-    ];
-    vec2 c = (norm_coordinates - vec2(0.5)) * p  - vec2(1.0, 0.0);
-    vec2 z = vec2(1.0, 0.0);
-    float i;
-    for (i = 0.0; i < 1.0; i += 0.005) {
-        z = vec2(
-        z.x * z.x - z.y * z.y + c.x,
-        z.y * z.x + z.x * z.y + c.y
-        );
-        if (length(z) > 4.0) {
-            break;
-        }
+    vec3 cam_origin = vec3(0.0, 0.0, 0.0);
+
+    vec2 raster_coord = gl_GlobalInvocationID.xy + vec2(0.5, 0.5);
+
+    vec2 norm_coords = raster_coord / vec2(imageSize(img));
+
+    vec2 screen_coord = vec2(-1.0, 1.0) - (vec2(-2.0, 2.0) * norm_coords);
+
+    vec3 screen_ray_intersection = vec3(screen_coord, 1.0);
+
+    Sphere s = Sphere(vec3(0.0, 1.0, 3.0), 1.0);
+
+    Light l =  Light(vec3(0.0, 5.0, -1.0), 0.5);
+
+    Ray ray = Ray(cam_origin, screen_ray_intersection);
+
+    float disc = ray_sphere_intersection(ray, s);
+
+    float p = size[2];
+
+    vec4 to_write = vec4(1.0);
+
+    if (disc < 0.0) {
+        to_write = vec4(0.0);
     }
-    vec4 to_write = vec4(vec3(i), 1.0);
+
     imageStore(img, ivec2(gl_GlobalInvocationID.xy), to_write);
 }

@@ -39,7 +39,7 @@ use std::io::{Cursor, Read};
 use std::mem::swap;
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
-const DIMS: Extent2D = Extent2D { width: 800,height: 600 };
+const DIMS: Extent2D = Extent2D { width: 800, height: 800};
 
 const ENTRY_NAME: &str = "main";
 
