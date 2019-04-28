@@ -316,7 +316,7 @@ fn main() {
 
             cmd_buffer.bind_compute_pipeline(&pipeline);
             cmd_buffer.bind_compute_descriptor_sets(&pipeline_layout, 0, Some(&frame_images[frame as usize].2), &[]);
-            cmd_buffer.dispatch([800, 600, 1]);
+            cmd_buffer.dispatch([800, 800, 1]);
             cmd_buffer.finish();
 
             let submission = Submission {
