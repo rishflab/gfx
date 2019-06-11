@@ -366,6 +366,10 @@ impl<B: Backend> RendererState<B> {
         );
 
         while running {
+
+            use std::time::Instant;
+            let start = Instant::now();
+
             {
                 let uniform = &mut self.uniform;
                 #[cfg(feature = "gl")]
@@ -602,6 +606,10 @@ impl<B: Backend> RendererState<B> {
                     continue;
                 }
             }
+
+            let duration = start.elapsed();
+
+            println!("duration: {:?}", duration);
         }
     }
 }
